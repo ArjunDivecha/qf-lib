@@ -20,16 +20,7 @@ Prerequisites
 
 QF-Lib currently supports Python 3.8-3.11. The library has been tested on Windows, macOS, and Ubuntu.
 
-The library uses `WeasyPrint <https://weasyprint.readthedocs.io>`__ to
-export documents to PDF. WeasyPrint requires additional dependencies,
-check the `platform-specific instructions for Linux, macOS and Windows
-installation <https://weasyprint.readthedocs.io/en/stable/install.html>`__.
-
-In order to facilitate the GTK3+ installation process for Windows you
-can use `following
-installers <https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases>`__.
-Download and run the latest ``gtk3-runtime-x.x.x-x-x-x-ts-win64.exe``
-file to install the GTK3+.
+The library uses matplotlib to export documents to PDF. All required dependencies are included in the standard installation.
 
 
 

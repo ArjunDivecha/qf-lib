@@ -16,6 +16,9 @@ import os
 from os.path import join, abspath, dirname
 from typing import List
 
+# Import the new SimplePDFExporter
+from qf_lib.documents_utils.document_exporting.simple_pdf_exporter import SimplePDFExporter
+# Keep the WeasyPrint import for backward compatibility
 from weasyprint import HTML, CSS
 
 from qf_lib.common.utils.logging.qf_parent_logger import qf_logger
@@ -25,11 +28,13 @@ from qf_lib.settings import Settings
 from qf_lib.starting_dir import get_starting_dir_abs_path
 
 
-class PDFExporter(DocumentExporter):
+class WeasyPrintPDFExporter(DocumentExporter):
     """
     Stores elements such as the ParagraphElement and ChartElement in order to build a PDF based on them once they
     have all been added. If there is a "document_css_directory" attribute set in the Settings, then CSS files from that
     directory will be applied for styling the output page. Otherwise the default styling will be applied.
+    
+    This is the original WeasyPrint-based implementation, kept for backward compatibility.
     """
 
     DEFAULT_CSS_DIR_NAME = 'default_css'
@@ -116,3 +121,13 @@ class PDFExporter(DocumentExporter):
             html.write_pdf(output_filename, css_file_paths)
 
         return output_filename
+
+
+class PDFExporter(SimplePDFExporter):
+    """
+    A simpler PDF exporter that uses matplotlib to generate PDF files.
+    This replaces the WeasyPrint-based PDFExporter with a lighter alternative.
+    """
+    
+    def __init__(self, settings: Settings):
+        super().__init__(settings)
