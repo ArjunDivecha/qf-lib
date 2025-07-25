@@ -57,7 +57,8 @@ class BuyAndHoldStrategy(AbstractStrategy):
 
 def main():
     # set the starting directory path below unless you set environment variable QF_STARTING_DIRECTORY to proper value
-    # set_starting_dir_abs_path(r"absolute/path/to/qf-lib")
+    from qf_lib.starting_dir import set_starting_dir_abs_path
+    set_starting_dir_abs_path("/Users/macbook2024/Dropbox/AAA Backup/A Working/QF/qf-lib")
 
     start_date = str_to_date("2010-01-01")
     end_date = str_to_date("2018-01-01")

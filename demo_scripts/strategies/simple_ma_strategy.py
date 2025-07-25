@@ -73,6 +73,10 @@ class SimpleMAStrategy(AbstractStrategy):
 
 
 def main():
+    # Set the starting directory
+    from qf_lib.starting_dir import set_starting_dir_abs_path
+    set_starting_dir_abs_path("/Users/macbook2024/Dropbox/AAA Backup/A Working/QF/qf-lib")
+    
     # settings
     backtest_name = 'Simple MA Strategy Demo'
     start_date = str_to_date("2010-01-01")
