@@ -35,42 +35,83 @@ class MA200Strategy(AbstractStrategy):
         self.order_factory = ts.order_factory
         self.data_provider = ts.data_provider
         self.tickers = tickers
+        self.execution_count = 0  # Track how many times strategy runs
+        self.max_executions = 1500  # Allow for 5-year backtest (~1300 trading days)
         print(f"Initialized strategy with {len(tickers)} tickers")
 
     def calculate_and_place_orders(self):
-        print("calculate_and_place_orders called")
+        self.execution_count += 1
+        
+        # Progress reporting every 50 executions
+        if self.execution_count % 50 == 0 or self.execution_count <= 5:
+            print(f"PROGRESS: Execution #{self.execution_count} of ~1300 (5-year backtest)")
+        
+        # Safety limit to prevent runaway execution
+        if self.execution_count > self.max_executions:
+            print(f"SAFETY LIMIT: Reached max executions ({self.max_executions}), skipping...")
+            return
         # Get current positions
         positions = self.broker.get_positions()
         current_positions = {p.ticker(): p.quantity() for p in positions}
         print(f"Current positions: {current_positions}")
         
-        # Calculate signals for each ticker
+        # Calculate signals for each ticker with timeout handling
         signals = {}
         successful_tickers = 0
-        for ticker in self.tickers:
+        
+        import signal as sig
+        import time
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Data fetch timeout")
+        
+        for i, ticker in enumerate(self.tickers):
             try:
-                # Get price history (need at least 200 days)
-                prices = self.data_provider.historical_price(ticker, PriceField.Close, 250)
+                # Only show ticker processing for first few executions
+                if self.execution_count <= 3:
+                    print(f"DEBUG: Processing ticker {i+1}/{len(self.tickers)}: {ticker}")
                 
-                # Calculate 200-day moving average
-                if len(prices) >= 200:
-                    ma_200 = prices.tail(200).mean()
-                    current_price = prices.iloc[-1]
+                # Set timeout for data fetching (5 seconds per ticker)
+                sig.signal(sig.SIGALRM, timeout_handler)
+                sig.alarm(5)
+                
+                try:
+                    # Get price history (need at least 200 days)
+                    prices = self.data_provider.historical_price(ticker, PriceField.Close, 250)
+                    sig.alarm(0)  # Cancel timeout
                     
-                    # Generate signal: 1.0 if above MA, 0.0 if below
-                    signals[ticker] = 1.0 if current_price > ma_200 else 0.0
-                    print(f"{ticker}: Price={current_price:.2f}, MA200={ma_200:.2f}, Signal={signals[ticker]}")
-                    successful_tickers += 1
-                else:
-                    # Not enough data - hold cash
+                    # Calculate 200-day moving average
+                    if len(prices) >= 200:
+                        ma_200 = prices.tail(200).mean()
+                        current_price = prices.iloc[-1]
+                        
+                        # Generate signal: 1.0 if above MA, 0.0 if below
+                        signals[ticker] = 1.0 if current_price > ma_200 else 0.0
+                        if self.execution_count <= 3:  # Only show details for first few executions
+                            print(f"{ticker}: Price={current_price:.2f}, MA200={ma_200:.2f}, Signal={signals[ticker]}")
+                        successful_tickers += 1
+                    else:
+                        # Not enough data - hold cash
+                        signals[ticker] = 0.0
+                        if self.execution_count <= 3:
+                            print(f"{ticker}: Not enough data ({len(prices)} points), Signal=0.0")
+                        
+                except TimeoutError:
+                    sig.alarm(0)
+                    print(f"TIMEOUT: {ticker} - setting signal to 0.0")
                     signals[ticker] = 0.0
-                    print(f"{ticker}: Not enough data ({len(prices)} points), Signal=0.0")
+                    
+                # Small delay between requests to avoid overwhelming the API
+                time.sleep(0.1)
+                
             except Exception as e:
+                sig.alarm(0)  # Make sure to cancel any pending alarm
                 # In case of any error, hold cash for this ticker
                 print(f"Error processing {ticker}: {e}")
                 signals[ticker] = 0.0
         
-        print(f"Successfully processed {successful_tickers} out of {len(self.tickers)} tickers")
+        if self.execution_count <= 3:  # Only show details for first few executions
+            print(f"Successfully processed {successful_tickers} out of {len(self.tickers)} tickers")
         
         # Normalize signals to equal weight
         total_signal = sum(signals.values())
@@ -79,17 +120,20 @@ class MA200Strategy(AbstractStrategy):
         else:
             normalized_signals = {ticker: 0.0 for ticker in self.tickers}
         
-        print(f"Normalized signals: {normalized_signals}")
+        if self.execution_count <= 3:
+            print(f"Normalized signals: {normalized_signals}")
         
         # Create orders based on signals
         orders = self.order_factory.target_percent_orders(normalized_signals, MarketOrder(), TimeInForce.DAY)
         
         # Cancel any open orders and place the newly created ones
         self.broker.cancel_all_open_orders()
+        
         if orders:
-            print(f"Placing {len(orders)} orders")
+            if self.execution_count <= 3:
+                print(f"Placing {len(orders)} orders")
             self.broker.place_orders(orders)
-        else:
+        elif self.execution_count <= 3:
             print("No orders to place")
 
 def main():
@@ -108,10 +152,10 @@ def main():
     with open(config_path, 'w') as f:
         json.dump(config, f)
     
-    # Settings
+    # Settings - 5-year backtest period
     backtest_name = '200-Day MA Strategy'
-    start_date = str_to_date("2020-01-03")
-    end_date = str_to_date("2025-07-24")  # Current date
+    start_date = str_to_date("2020-01-03")  # 5-year backtest
+    end_date = str_to_date("2025-07-24")    # Current date
 
     # Create settings object
     settings = Settings(settings_path=config_path)
@@ -119,7 +163,7 @@ def main():
     # Create data provider
     data_provider = YFinanceDataProvider()
     
-    # Create exporters
+    # Create exporters for report generation
     pdf_exporter = PDFExporter(settings)
     excel_exporter = ExcelExporter(settings)
 
@@ -138,16 +182,36 @@ def main():
     CalculateAndPlaceOrdersRegularEvent.exclude_weekends()
     strategy.subscribe(CalculateAndPlaceOrdersRegularEvent)
     
-    print("Starting trading session...")
-    ts.start_trading()
-    print("Trading session completed.")
-    
-    # Clean up temporary config file
-    os.remove(config_path)
-    
-    # Ensure proper exit
+    print("DEBUG: About to start trading session...")
     import sys
-    sys.exit(0)
+    sys.stdout.flush()  # Force flush output
+    
+    try:
+        print("DEBUG: Calling ts.start_trading()...")
+        sys.stdout.flush()
+        ts.start_trading()
+        print("DEBUG: ts.start_trading() completed successfully")
+        sys.stdout.flush()
+        print("Trading session completed.")
+    except KeyboardInterrupt:
+        print("DEBUG: KeyboardInterrupt caught")
+        sys.stdout.flush()
+    except Exception as e:
+        print(f"DEBUG: Exception during trading session: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.stdout.flush()
+    finally:
+        # Clean up temporary config file
+        if os.path.exists(config_path):
+            os.remove(config_path)
+        
+        # Force cleanup and exit to prevent hanging
+        import sys
+        import gc
+        gc.collect()  # Force garbage collection
+        print("Exiting program...")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
